@@ -1,0 +1,26 @@
+rule o365_email_forwarding_removed_or_disabled {
+
+  meta:
+    author = "Gowthaman"
+    description = "This rule detects when a user make any changes to email forwarding rule"
+    type = "alert"
+    platform = "azure"
+    data_source = "o365"
+    severity = "Medium"
+    priority = "Medium"
+
+  events:
+    $event.metadata.product_name = "Office 365"
+    $event.metadata.vendor_name = "Microsoft"
+    $event.metadata.product_event_type = "Set-Mailbox"
+    $event.security_result.detection_fields.key = "DeliverToMailboxAndForward"
+    $event.metadata.event_type = "EMAIL_UNCATEGORIZED"
+    $event.target.application = "Exchange"
+    $event.security_result.detection_fields["ForwardingSmtpAddress"] = ""
+    $event.security_result.detection_fields["ForwardingAddress"] = ""
+
+
+
+  condition:
+    $event
+}
