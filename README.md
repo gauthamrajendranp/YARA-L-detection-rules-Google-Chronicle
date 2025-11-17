@@ -45,11 +45,12 @@ This repository contains custom YARA-L detection rules developed for proactive t
 
 Installation
   1. Clone this repository:
-        bash
-        git clone https://github.com/your-username/yara-l-detection-rules.git
-        cd yara-l-detection-rules
-  2. Review and customize rules according to your environment
-  3. Deploy rules to your Google Chronicle instance
+
+         bash
+            git clone https://github.com/gauthamrajendranp/YARA-L-detection-rules-Google-Chronicle.git
+            cd YARA-L-detection-rules-Google-Chronicle
+  3. Review and customize rules according to your environment
+  4. Deploy rules to your Google Chronicle instance
 
 Rule Deployment
 Refer to the Deployment Guide for detailed instructions on:
