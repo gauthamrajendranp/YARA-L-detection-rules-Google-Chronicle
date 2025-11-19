@@ -1,0 +1,33 @@
+rule gcp_iam_user_account_modification {
+  
+ meta:
+ 	author = "Gowthaman"
+ 	description = "Alert triggered due to the addition of a user account with an email domain that is not '@orgname.com' in a setIAM action. IAM roles and permissions should generally be assigned to users within the organization's domain to maintain tight control over access and prevent unauthorized access from external or third-party entities. Immediate investigation is required to determine whether this action was intentional and authorized. "
+ 	severity = "High"
+ 
+ 
+  events:
+    $event.metadata.product_event_type= "google.iam.admin.v1.SetIAMPolicy"
+    $event.principal.user.userid =  /.*@(d*********.com)/                            // orgname.com to be included here
+    $event.principal.user.userid = $user_id
+    $event.principal.user.user_display_name = $user_name
+
+
+  match:
+    $user_name, $user_id over 15m
+    
+  outcome:
+    $risk_score = max(55)
+    $event_count = count_distinct($event.metadata.id)
+    $network_http_user_agent = array_distinct($event.network.http.user_agent)
+    $principal_ip = array_distinct($event.principal.ip)
+    $principal_ip_country = array_distinct($event.principal.ip_geo_artifact.location.country_or_region)
+    $principal_ip_state = array_distinct($event.principal.ip_geo_artifact.location.state)
+    $principal_user_id = array_distinct($event.principal.user.userid)
+    $principal_user_display_name = array_distinct($event.principal.user.user_display_name)
+    $event_name = array_distinct($event.metadata.product_event_type)
+
+
+   condition:
+ 	  $event 
+ }
