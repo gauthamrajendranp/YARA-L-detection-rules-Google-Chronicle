@@ -1,0 +1,32 @@
+rule gcp_firewall_rule_opened_to_world {
+
+  meta:
+    author = "Gowthaman"
+    logic = "Detect when a GCP Firewall rule is opened to the world (0.0.0.0/0)."
+    log source = "GCP Cloud Audit"
+    severity = "High"
+
+  events:
+    $e.metadata.product_name = "Google Compute Engine"
+    $e.metadata.log_type = "GCP_CLOUDAUDIT"
+    $e.metadata.event_type = "RESOURCE_CREATION"
+    ($e.metadata.product_event_type = /v1.compute.firewalls.(?:patch|insert)/ or $e.metadata.product_event_type = /beta.compute.firewalls.(?:patch|insert)/)
+    $e.security_result.action = "ALLOW"
+    ($e.target.resource.attribute.labels["source_ranges"] = "0.0.0.0/0" or $e.target.resource.attribute.labels["source_ranges"] = "0.0.0.0")
+
+  outcome:
+    $risk_score = max(70)
+    $mitre_attack_tactic = "Defense Evasion"
+    $mitre_attack_technique = "Impair Defenses"
+    $mitre_attack_technique_id = "T1562"
+    $event_count = count_distinct($e.metadata.id)
+    $event_name = $e.metadata.product_event_type
+    $principal_ip = array_distinct($e.principal.ip)
+    $network_http_user_agent = array_distinct($e.network.http.user_agent)
+    $principal_user_id = $e.principal.user.userid
+    $principal_ip_country = array_distinct($e.principal.ip_geo_artifact.location.country_or_region)
+    $target_resource_name = $e.target.resource.name
+
+  condition:
+    $e
+}
