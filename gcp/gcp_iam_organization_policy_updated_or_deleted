@@ -1,0 +1,33 @@
+ rule gcp_iam_organization_policy_updated_or_deleted {
+
+  meta:
+    author = "Gowthaman"
+    logic = "Alert triggered due to an update or deletion of a GCP IAM organization policy. IAM organization policies are crucial for managing security controls and access permissions across the entire GCP environment. Any changes to these policies can have significant implications on access control, potentially introducing security vulnerabilities or unauthorized access. Immediate investigation is required to verify whether the update or deletion was authorized and intentional. Ensure that the changes are in line with the organization's security and compliance standards. If the change was unauthorized, take immediate steps to revert the policy and assess whether further actions are required to address potential security risks."
+    data_source = "GCP Cloud Audit"
+    severity = "High"
+
+  events:
+    $e.metadata.vendor_name = "Google Cloud Platform"
+    $e.metadata.log_type = "GCP_CLOUDAUDIT"
+    (
+        ($e.metadata.event_type = "RESOURCE_WRITTEN" and $e.metadata.product_event_type = "google.cloud.orgpolicy.v2.OrgPolicy.UpdatePolicy") or ($e.metadata.event_type = "RESOURCE_DELETION" and $e.metadata.product_event_type = "google.cloud.orgpolicy.v2.OrgPolicy.DeletePolicy")
+    )
+    $e.security_result.action = "ALLOW"
+    $e.target.application = "orgpolicy.googleapis.com"
+
+  outcome:
+    $risk_score = max(70)
+    $mitre_attack_tactic = "Persistence, Privilege Escalation"
+    $mitre_attack_technique = "Account Manipulation"
+    $event_count = count_distinct($e.metadata.id)
+    $network_http_user_agent = array_distinct($e.network.http.user_agent)
+    $event_name = $e.metadata.product_event_type
+    $principal_ip = array_distinct($e.principal.ip)
+    $principal_ip_country = array_distinct($e.principal.ip_geo_artifact.location.country_or_region)
+    $principal_user_id = $e.principal.user.userid
+    $principal_user_display_name = $e.principal.user.user_display_name
+    $target_resource_name = $e.target.resource.name
+
+  condition:
+    $e
+}
