@@ -1,0 +1,41 @@
+rule gcp_cloudsql_modification {
+
+  meta:
+    author = "Gowthaman"
+    description = "Detect when any changes are made to a CloudSQL instance in the Org."
+    type = "Alert"
+    data_source = "GCP Cloud Audit"
+    platform = "GCP"
+    severity = "Medium"
+    priority = "Medium"
+
+  events:
+    $e.metadata.log_type = "GCP_CLOUDAUDIT"
+    $e.metadata.vendor_name = "Google Cloud Platform"
+    $e.security_result.action = "ALLOW"
+   ($e.metadata.product_event_type = "cloudsql.instances.update" or $e.metadata.product_event_type = "cloudsql.instances.create" or $e.metadata.product_event_type = "cloudsql.instances.delete")
+    $e.target.resource.resource_type = "DATABASE"
+    not re.regex($e.target.cloud.project.name, `fg`)                                 // excluded detections from projects with naming convention "fg" since its is expected 
+    not $e.principal.user.userid = /@.*\.gserviceaccount\.com$/ nocase               // excluded detections from SAs
+    $e.principal.user.userid = $user_id
+    $e.target.cloud.project.name = $project
+
+
+match:
+    $user_id, $project over 15m  
+
+  outcome:
+    $risk_score = max(55)
+    $event_count = count_distinct($e.metadata.id)
+    $network_http_user_agent = array_distinct($e.network.http.user_agent)
+    $principal_ip = array_distinct($e.principal.ip)
+    $principal_ip_country = array_distinct($e.principal.ip_geo_artifact.location.country_or_region)
+    $principal_ip_state = array_distinct($e.principal.ip_geo_artifact.location.state)
+    $principal_user_id = array_distinct ($e.principal.user.userid)
+    $principal_user_display_name = array_distinct($e.principal.user.user_display_name)
+    $project_name = array_distinct($e.target.cloud.project.name)
+    $event_name = array_distinct($e.metadata.product_event_type)
+
+  condition:
+    $e
+}
