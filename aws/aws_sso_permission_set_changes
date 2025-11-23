@@ -1,0 +1,43 @@
+rule aws_sso_permission_set_changes {
+
+  meta:
+    author = "Gowthaman"
+    description = "Detects manual changes to AWS IAM Identity Center (formerly AWS SSO) Permission Sets."
+    data_source = "AWS CloudTrail"
+    platform = "AWS"
+    severity = "Medium"
+
+events:
+    $cloudtrail.metadata.vendor_name = "AMAZON"
+    $cloudtrail.metadata.product_name = "AWS CloudTrail" 
+    $cloudtrail.metadata.log_type = "AWS_CLOUDTRAIL" 
+    $cloudtrail.metadata.event_type = "RESOURCE_READ"
+    $cloudtrail.additional.fields["eventType"] = "AwsApiCall"
+    $cloudtrail.security_result.action = "ALLOW"
+    $cloudtrail.target.application = "sso.amazonaws.com"
+    and 
+    $cloudtrail.metadata.product_event_type IN %AWS_SSO                                     // reference list attached
+    not re.regex($cloudtrail.principal.user.userid, `.*terraform-automation-sa*`)
+    $cloudtrail.principal.user.userid != "arn:aws:sts::AccountID:assumed-role/AWSServiceRoleForUserSubscriptions/UserSubscriptions"        // excluding legit user IDs
+    $cloudtrail.principal.user.userid = $user_id
+    $cloudtrail.target.application = $target_application
+
+  match:
+    $user_id over 5m
+
+  outcome:
+    $risk_score = 60
+    $event_count = count_distinct($cloudtrail.metadata.id)
+    $network_http_user_agent = array_distinct($cloudtrail.network.http.user_agent)
+    $principal_ip = array_distinct($cloudtrail.principal.ip)
+    $principal_ip_country = array_distinct($cloudtrail.principal.ip_geo_artifact.location.country_or_region)
+    $principal_ip_state = array_distinct($cloudtrail.principal.ip_geo_artifact.location.state)
+    $principal_user_display_name = array_distinct($cloudtrail.principal.user.user_display_name)
+    $recipient_aws_account_id = array_distinct($cloudtrail.additional.fields["recipientAccountId"])
+    $aws_region = array_distinct($cloudtrail.principal.location.name)
+    $target_resource_name = array_distinct($cloudtrail.target.resource.name)
+    $target_resource_product_object_id = array_distinct($cloudtrail.target.resource.product_object_id)
+
+  condition:
+    $cloudtrail
+}
