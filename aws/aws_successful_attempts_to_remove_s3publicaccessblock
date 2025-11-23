@@ -1,0 +1,32 @@
+rule aws_successful_attempts_to_remove_s3publicaccessblock {
+
+meta:
+    author = "Gowthaman"
+    description = "Detect successful attempts to remove the S3 Public Access Block configuration from a bucket or an account."
+    data_source = "AWS CloudTrail"
+    platform = "AWS"
+    severity = "High"
+
+events:
+    $e.metadata.vendor_name = "AMAZON"
+    $e.metadata.product_name = "AWS CloudTrail"
+    $e.metadata.log_type = "AWS_CLOUDTRAIL"
+    $e.metadata.event_type = "RESOURCE_DELETION"
+    $e.metadata.product_event_type = "DeleteBucketPublicAccessBlock"
+    $e.security_result.action = "ALLOW"
+
+outcome :
+    $risk_score = max(85)
+    $event_count = count_distinct($e.metadata.id)
+    $network_http_user_agent = array_distinct($e.network.http.user_agent)
+    $principal_ip = array_distinct($e.principal.ip)
+    $principal_ip_country = array_distinct($e.principal.ip_geo_artifact.location.country_or_region)
+    $principal_ip_state = array_distinct($e.principal.ip_geo_artifact.location.state)
+    $principal_user_id = $e.principal.user.userid
+    $principal_user_display_name = $e.principal.user.user_display_name
+    $target_resource_name = $e.target.resource.name
+    $event_name = $e.metadata.product_event_type
+
+condition :
+    $e
+}
