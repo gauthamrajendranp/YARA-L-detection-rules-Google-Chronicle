@@ -1,0 +1,39 @@
+rule aws_noncompliance_mfa_delete_enabled_s3_buckets {
+  meta:
+    author = "Gowthaman"
+    description = "Ensures MFA Delete is enabled on S3 buckets to prevent accidental or unauthorized deletion of objects, adding an extra layer of security."
+    data_source = "GCP Security Command Center"
+    severity = "Medium"
+    compliance_standard = "HIPPA 164.308(a)(3)(i),164.308(a)(3)(ii),164.312(a)(1) ; NIST AC-3,AC-5,AC-6,MP-2; SOC2 CC5.2.3,CC6.1.3,CC6.1.7"
+
+  events:
+    $e.metadata.vendor_name = "Google"
+    $e.metadata.product_name = "Security Command Center"
+    $e.metadata.log_type = "GCP_SECURITYCENTER_MISCONFIGURATION"
+    $e.metadata.event_type = "GENERIC_EVENT"
+    $e.metadata.product_event_type = "MFA_DELETE_ENABLED_S3_BUCKETS"
+    $e.security_result.category_details = "MISCONFIGURATION"
+    $e.target.resource.attribute.labels["resource_type"] = "AWS::S3::Bucket"
+    $e.security_result.alert_state = "ALERTING"
+    $e.security_result.detection_fields["state"] = "ACTIVE"
+    $e.target.resource.name = $resource_name
+    
+
+  match:
+    $resource_name over 24h
+
+  outcome:
+    $risk_score = 70
+    $description = "Ensures MFA Delete is enabled on S3 buckets to prevent accidental or unauthorized deletion of objects, adding an extra layer of security."
+    $event_name = array_distinct($e.metadata.product_event_type)
+    $principal_resource_name = array_distinct($e.principal.resource.name)
+    $target_resource_name = array_distinct($e.target.resource.name)    
+    $resource_display_name = array_distinct($e.target.resource.attribute.labels["resource_displayName"])
+    $recipient_aws_account_id = array_distinct($e.additional.fields["recipientAccountId"])
+    $aws_region = array_distinct($e.principal.location.name)
+    $target_resource_product_object_id = array_distinct($e.target.resource.product_object_id)
+    $recommendation = array_distinct($e.security_result.detection_fields["sourceProperties_Recommendation"])
+
+  condition:
+    $e
+}
