@@ -1,0 +1,45 @@
+rule aws_privileged_roles_added_removed_correlation {
+  meta:
+    author = "Gowthaman"
+    description = "This rule detects when privileged AWS IAM policies are attached to a principal (user, role, or group) and then quickly detached within 1 hour, using your organization's specific UDM field mappings for AWS CloudTrail events."
+    severity = "High"
+    priority = "High"
+
+  events:
+    // Event 1: Privileged policy attached (role added)
+    $add_event.additional.fields["eventType"] = "AwsApiCall"
+    $add_event.metadata.log_type = "AWS_CLOUDTRAIL"
+    $add_event.metadata.product_event_type = "AttachUserPolicy" or $add_event.metadata.product_event_type = "AttachRolePolicy" or $add_event.metadata.product_event_type = "AttachGroupPolicy"
+    $add_event.principal.user.userid = $user_name
+    $add_event.target.resource.attribute.labels.value = $principal_arn
+    $add_event.security_result.rule_name = $policy_arn
+    re.regex($policy_arn, "/AdministratorAccess|PowerUserAccess|IAMFullAccess|SecurityAudit|AWSCloudTrailFullAccess|AmazonS3FullAccess|AmazonEC2FullAccess|AmazonRDSFullAccess/")
+
+    // Event 2: Same privileged policy detached (role removed)
+    $remove_event.additional.fields["eventType"] = "AwsApiCall"
+    $remove_event.metadata.log_type = "AWS_CLOUDTRAIL" or     $remove_event.metadata.log_type = "AWS_CONFIG"
+    $remove_event.metadata.product_event_type = "DetachUserPolicy" or $remove_event.metadata.product_event_type = "DetachRolePolicy" or $remove_event.metadata.product_event_type = "DetachGroupPolicy"
+    $remove_event.principal.user.userid = $user_name
+    $remove_event.target.resource.attribute.labels.value = $principal_arn
+    $remove_event.security_result.rule_name = $policy_arn
+    re.regex($policy_arn, "/AdministratorAccess|PowerUserAccess|IAMFullAccess|SecurityAudit|AWSCloudTrailFullAccess|AmazonS3FullAccess|AmazonEC2FullAccess|AmazonRDSFullAccess/")
+
+    // Timestamp constraints - same policy attached then detached within 1 hour
+    $add_event.metadata.event_timestamp.seconds < $remove_event.metadata.event_timestamp.seconds
+    $remove_event.metadata.event_timestamp.seconds - $add_event.metadata.event_timestamp.seconds <= 3600
+
+  match:
+    $user_name, $principal_arn, $policy_arn over 2h
+
+  outcome:
+    $risk_score = max(90)
+    $suspicious_user = array_distinct($user_name)
+    $target_principal = array_distinct($principal_arn)
+    $privileged_policy = array_distinct($policy_arn)
+    $time_between_actions = array_distinct($remove_event.metadata.event_timestamp.seconds - $add_event.metadata.event_timestamp.seconds)
+    $add_action = array_distinct($add_event.metadata.product_event_type)
+    $remove_action = array_distinct($remove_event.metadata.product_event_type)
+
+  condition:
+    $add_event and $remove_event
+}
