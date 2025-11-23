@@ -1,0 +1,52 @@
+rule gcp_privileged_roles_added_removed_correlation {
+  meta:
+    author = "Gowthaman"
+    description = "This rule detects when privileged GCP IAM roles are granted to a principal and then revoked within a short time window (1 hour), which could indicate attempted privilege abuse, lateral movement, or covering tracks after unauthorized access."
+    // This monitoring is critical for detecting sophisticated attack patterns where threat actors minimize their exposure time to avoid detection while still accomplishing malicious objectives.    
+    severity = "High"
+    priority = "High"
+
+  events:
+    // Event 1: Privileged role added
+    $add_event.metadata.event_type = "USER_RESOURCE_UPDATE_PERMISSIONS"
+    $add_event.metadata.log_type = "GCP_CLOUDAUDIT"
+    $add_event.metadata.product_name = "Google Cloud Platform"
+    $add_event.metadata.product_event_type = "SetIamPolicy"
+    $add_event.principal.user.userid = $user_id
+    $add_event.target.resource.name = $resource_name
+    re.regex($add_event.principal.user.attribute.roles.description, "ADD")
+    re.regex($add_event.principal.user.attribute.roles.name, "(owner|admin|editor|securityAdmin|iam.securityAdmin|compute.admin|storage.admin|cloudfunctions.admin)")
+
+    // Event 2: Same privileged role removed
+    $remove_event.metadata.event_type = "USER_RESOURCE_UPDATE_PERMISSIONS"
+    $remove_event.metadata.log_type = "GCP_CLOUDAUDIT"
+    $remove_event.metadata.product_name = "Google Cloud Platform"
+    $remove_event.metadata.product_event_type = "SetIamPolicy"
+    $remove_event.principal.user.userid = $user_id
+    $remove_event.target.resource.name = $resource_name
+    re.regex($remove_event.principal.user.attribute.roles.description, "REMOVE")
+    re.regex($remove_event.principal.user.attribute.roles.name, "(owner|admin|editor|securityAdmin|iam.securityAdmin|compute.admin|storage.admin|cloudfunctions.admin)")
+    
+    // Ensure same role was added and removed
+    $add_event.principal.user.attribute.roles.name = $remove_event.principal.user.attribute.roles.name
+
+    // Timestamp constraints
+    $add_event.metadata.event_timestamp.seconds < $remove_event.metadata.event_timestamp.seconds
+    $remove_event.metadata.event_timestamp.seconds - $add_event.metadata.event_timestamp.seconds <= 3600
+
+  match:
+    $user_id, $resource_name over 2h
+
+  outcome:
+    $risk_score = max(90)
+    $user_agent = array_distinct($add_event.network.http.user_agent)
+    $suspicious_user = array_distinct($user_id)
+    $target_resource = array_distinct($resource_name)
+    $time_between_actions = array_distinct($remove_event.metadata.event_timestamp.seconds - $add_event.metadata.event_timestamp.seconds)
+    $privileged_role = array_distinct($add_event.principal.user.attribute.roles.name)
+    $principal_user_id = array_distinct($add_event.principal.user.userid)
+
+
+  condition:
+    $add_event and $remove_event
+}
