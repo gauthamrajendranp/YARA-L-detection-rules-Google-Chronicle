@@ -1,0 +1,46 @@
+rule gcp_noncompliance_public_bucket_detection {
+  meta:
+    author = "Gowthaman"
+    description = "Organization-wide detection of publicly accessible GCS buckets violating HIPAA 164.308(a)(3)(i)(ii) & 164.312(a)(1); SOC2 2017 CC5.2.3, CC6.1.3, CC6.1.7"
+    data_source = "GCP Security Command Center"
+    platform = "GCP"
+    severity = "High"
+    compliance_standard = "HIPAA 164.308(a)(3)(i)(ii) & 164.312(a)(1); SOC2 2017 CC5.2.3, CC6.1.3, CC6.1.7"
+
+  events:
+    // Core detection of public bucket misconfiguration
+    $e.metadata.vendor_name = "Google"
+    $e.metadata.product_name = "Security Command Center"
+    $e.metadata.log_type = "GCP_SECURITYCENTER_MISCONFIGURATION"
+    $e.metadata.event_type = "GENERIC_EVENT"
+    $e.metadata.product_event_type = "PUBLIC_BUCKET_ACL"
+    $e.security_result.description = /"allUsers".*"allAuthenticatedUsers"/
+    $e.target.resource.attribute.labels.value = "google.cloud.storage.Bucket"
+    $e.security_result.detection_fields["state"] = "ACTIVE"
+    $e.principal.resource_ancestors.resource_type = "CLOUD_ORGANIZATION"
+    $e.principal.resource_ancestors.name = /organizations\/[0-9]+/
+    $e.target.resource.name = $resource_name
+
+
+ match:
+    $resource_name over 24h
+
+   outcome :
+    $risk_score = 70
+    $description = "A high-severity misconfiguration has been detected in a Google Cloud Storage (GCS) bucket, making it publicly accessible across the organization. This finding, reported by Google Security Command Center, constitutes a critical data exposure risk and active violation of HIPAA control 164.308(a)(3)(ii)."
+    $event_name = array_distinct($e.metadata.product_event_type)
+    $principal_resource_name = array_distinct($e.principal.resource.name)
+    $target_resource_name = array_distinct($e.target.resource.name)    
+    $resource_display_name = array_distinct($e.target.resource.attribute.labels["resource_displayName"])
+    $resource_type = array_distinct($e.target.resource.attribute.labels["resource_type"])
+    $resource_path = array_distinct($e.target.resource.attribute.labels["resource_path_string"])
+    $gcp_org_id = array_distinct($e.principal.resource_ancestors.name)
+    $target_resource_product_object_id = array_distinct($e.target.resource.product_object_id)
+    $resource_location = array_distinct($e.target.location.name)
+    $recommendation = array_distinct($e.security_result.detection_fields["sourceProperties_Recommendation"])
+    $action_required_on_project = array_distinct($e.target.resource.attribute.labels["ActionRequiredOnProject"]) 
+
+
+  condition:
+    $e
+}
