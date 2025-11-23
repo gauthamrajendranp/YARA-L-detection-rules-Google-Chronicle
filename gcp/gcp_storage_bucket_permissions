@@ -1,0 +1,34 @@
+ rule gcp_storage_bucket_permissions {
+
+  meta:
+    author = "Gowthaman"
+    description = "Monitoring changes to Cloud Storage bucket permissions, can help you identify over-privileged users or suspicious activity at early stages"
+    data_source = "GCP Cloud Audit"
+    platform = "GCP"
+    severity = "Medium"
+
+  events:
+    $e.metadata.product_event_type = "storage.setIamPermissions"
+    $e.target.resource.resource_subtype = "gcs_bucket"
+    $e.metadata.vendor_name = "Google Cloud Platform"
+    $e.metadata.product_name = "Google Cloud Storage"
+    $e.target.application = "storage.googleapis.com"
+
+  outcome:
+    $risk_score = max(75)
+    $mitre_attack_tactic = "Defense Evasion"
+    $mitre_attack_technique = "Impair Defenses"
+    $mitre_attack_technique_id = "T1562"
+    $event_count = count_distinct($e.metadata.id)
+    $network_http_user_agent = array_distinct($e.network.http.user_agent)
+    $principal_ip = array_distinct($e.principal.ip)
+    $principal_ip_country = array_distinct($e.principal.ip_geo_artifact.location.country_or_region)
+    $principal_ip_state = array_distinct($e.principal.ip_geo_artifact.location.state)
+    $principal_user_id = $e.principal.user.userid
+    $principal_user_display_name = $e.principal.user.user_display_name
+    $target_resource_name = $e.target.resource.name
+    $event_name = $e.metadata.product_event_type
+
+  condition:
+    $e
+}
