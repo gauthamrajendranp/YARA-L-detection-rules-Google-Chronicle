@@ -1,0 +1,114 @@
+rule gcp_user_account_modification_correlation {
+  meta:
+    author = "Gowthaman"
+    description = "Correlates user account modifications (password resets, MFA changes, role updates) with subsequent logins from anonymous IPs - detecting potential account compromise and credential abuse patterns in GCP environment"
+    severity = "High"
+    mitre_tactic = "TA0001: Initial Access, TA0005: Defense Evasion"
+    mitre_technique = "T1078: Valid Accounts, T1098: Account Manipulation"
+
+  events:
+    // Phase 1: User Account Modification Events
+    $modification_event.metadata.event_type = "USER_CHANGE_PASSWORD" or $modification_event.metadata.event_type = "USER_RESOURCE_UPDATE_PERMISSIONS"
+    $modification_event.principal.user.userid = $admin_user
+    $modification_event.target.user.userid = $target_user
+    
+    // High-risk account modification actions
+    (
+        // Password and credential modifications
+        
+        $modification_event.metadata.product_event_type in %Password_change_product_event_types  or
+        
+        // MFA and security modifications
+        $modification_event.metadata.product_event_type = "AddMultiFactorProvider" or
+        $modification_event.metadata.product_event_type = "RemoveMultiFactorProvider" or
+        $modification_event.metadata.product_event_type = "UpdateMultiFactorRegistration" or
+        
+        // IAM role and permission changes
+        $modification_event.metadata.product_event_type = "SetIamPolicy" or
+        $modification_event.metadata.product_event_type = "google.iam.admin.v1.SetIAMPolicy" or
+        $modification_event.metadata.product_event_type = "UpdateRole" or
+        $modification_event.metadata.product_event_type = "UpdateUser" or
+        
+        // Service account key operations
+        $modification_event.metadata.product_event_type = "v1.projects.serviceAccounts.keys.create" or
+        $modification_event.metadata.product_event_type = "v1.projects.serviceAccounts.keys.delete"
+    )
+    
+    // Extract modification details
+    $modification_event.security_result.summary = $modification_details
+    $modification_event.target.resource.name = $target_project
+
+    // Phase 2: Suspicious Login from Anonymous IP
+    $login_event.metadata.event_type = "USER_LOGIN"
+    $login_event.metadata.log_type = "GCP_CLOUDAUDIT" or $login_event.metadata.log_type = "OFFICE_365" or $login_event.metadata.log_type = "AZURE_AD"
+    $login_event.principal.user.userid = $target_user
+    $login_event.security_result.action = "ALLOW"
+    
+    // Login success events
+    (
+        $login_event.metadata.product_event_type = "UserLoggedIn" or
+        $login_event.metadata.product_event_type = "login_success" or
+        $login_event.metadata.product_event_type = "AuthorizeUser" or
+        $login_event.metadata.product_event_type = "GenerateAccessToken" or
+        $login_event.metadata.product_event_type = "GenerateIdToken"
+    )
+    
+    // Anonymous IP detection - TOR, VPN, hosting providers
+    $login_event.principal.ip = $login_ip
+    (
+        // TOR networks
+        $login_ip in %TOR_IP_addresses  or                                                                   // reference list attached
+        $login_ip in %TOR_exit_nodes  or                                                                     // reference list attached
+        re.regex($login_event.principal.ip_geo_artifact.network.organization_name, ".*TOR.*") or
+        $login_event.principal.ip in %AbuseCh_IPs  or                                                        // reference list attached
+        $login_event.principal.ip in %Malicious_IPs  or                                                      // reference list attached
+
+        // Known VPN providers         
+        re.regex($login_event.principal.ip_geo_artifact.network.organization_name, "(?i)(TOR|VPN|PROXY|VPS|Unblocker)") or
+        
+        // Cloud/hosting providers (suspicious for user logins)
+        $login_event.principal.ip_geo_artifact.network.organization_name in %suspicious_hosting_providers  or     // reference list attached
+
+        // High-risk countries (customize based on your org)
+        $login_event.principal.ip_geo_artifact.location.country_or_region in %user_login_restricted_countries       // reference list attached
+         )
+
+    // Correlation conditions
+    $modification_event.metadata.event_timestamp.seconds <= $login_event.metadata.event_timestamp.seconds
+    $login_event.metadata.event_timestamp.seconds - $modification_event.metadata.event_timestamp.seconds <= 86400  // 24 hours
+    $modification_event.target.user.userid = $login_event.principal.user.userid
+    // Ensure different users for modification and login (admin modifying other user's account)
+    $modification_event.principal.user.userid != $login_event.principal.user.userid
+
+  match:
+    $target_user over 48h
+
+  outcome:
+    $risk_score = max(
+        // Modification type risk
+        25 * if($modification_event.metadata.product_event_type = "ResetPassword", 1, 0) +
+        30 * if($modification_event.metadata.product_event_type = "UploadSshPublicKey", 1, 0) +
+        35 * if($modification_event.metadata.product_event_type = "v1.projects.serviceAccounts.keys.create", 1, 0) +
+        20 * if($modification_event.metadata.product_event_type = "SetIamPolicy", 1, 0) +
+        15 * if(not ($modification_event.metadata.product_event_type = "ResetPassword" or 
+                    $modification_event.metadata.product_event_type = "UploadSshPublicKey" or
+                    $modification_event.metadata.product_event_type = "v1.projects.serviceAccounts.keys.create" or
+                    $modification_event.metadata.product_event_type = "SetIamPolicy"), 1, 0) +
+              
+        // Timing risk
+        15 * if($login_event.metadata.event_timestamp.seconds - $modification_event.metadata.event_timestamp.seconds <= 3600, 1, 0)
+    )
+    $compromised_account = array_distinct($target_user)
+    $modification_admin = array_distinct($admin_user)
+    $suspicious_ip = array_distinct($login_ip)
+    $modification_type = array_distinct($modification_event.metadata.product_event_type)
+    $modification_time = array_distinct($modification_event.metadata.event_timestamp.seconds)
+    $login_time = array_distinct($login_event.metadata.event_timestamp.seconds)
+    $time_gap = array_distinct($login_event.metadata.event_timestamp.seconds - $modification_event.metadata.event_timestamp.seconds)
+    $geo_location = array_distinct($login_event.principal.ip_geo_artifact.location.country_or_region)
+    $network_org = array_distinct($login_event.principal.ip_geo_artifact.network.organization_name)
+    $target_project_name = array_distinct($modification_event.target.resource.name)
+
+  condition:
+    $modification_event and $login_event 
+}
