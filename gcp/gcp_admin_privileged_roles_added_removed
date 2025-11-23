@@ -1,0 +1,36 @@
+rule gcp_admin_privileged_roles_added_removed {
+
+  meta:
+    author = "Gowthaman"
+    description = "Alert triggered due to the assignment of admin privileged roles (Owner or Editor) within Google Cloud Platform (GCP). These roles grant broad permissions, including full control over project resources and configurations, which can pose a significant security risk if granted to unauthorized users or services. Immediate investigation is required to determine whether this action was authorized and aligns with organizational policies."
+    data_source = "GCP Cloud Audit"
+    severity = "High"
+
+  events:
+    $e.metadata.event_type = "USER_RESOURCE_UPDATE_PERMISSIONS"
+    $e.metadata.log_type = "GCP_CLOUDAUDIT"
+    $e.metadata.product_event_type = "SetIamPolicy"
+    $e.security_result.action = "ALLOW"
+    ($e.target.resource.attribute.labels["ser_binding_deltas_action"] = "ADD" or $e.target.resource.attribute.labels["ser_binding_deltas_action"] = "REMOVE")
+    $e.target.resource.attribute.labels["ser_binding_deltas_role"] = /roles\/owner.*|roles\/editor.*|roles\/viewer.*/ nocase
+    not($e.target.resource.attribute.labels["ser_binding_deltas_member"] = /^serviceAccount/ nocase)
+
+  outcome:
+    $risk_score = max(75)
+    $mitre_attack_tactic = "Persistence, Privilege Escalation"
+    $mitre_attack_technique = "Account Manipulation: Additional Cloud Roles"
+    $mitre_attack_technique_id = "T1098.003"
+    $event_count = count_distinct($e.metadata.id)
+    $network_http_user_agent = array_distinct($e.network.http.user_agent)
+    $principal_ip = array_distinct($e.principal.ip)
+    $principal_ip_country = array_distinct($e.principal.ip_geo_artifact.location.country_or_region)
+    $principal_ip_state = array_distinct($e.principal.ip_geo_artifact.location.state)
+    $principal_user_id = $e.principal.user.userid
+    $principal_user_display_name = $e.principal.user.user_display_name
+    $target_resource_name = $e.target.resource.name
+    $event_name = $e.metadata.product_event_type
+    $target_email_addresses = array_distinct($e.target.user.email_addresses)
+
+  condition:
+    $e
+}
