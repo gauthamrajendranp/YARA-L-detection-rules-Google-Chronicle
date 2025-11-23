@@ -1,0 +1,41 @@
+rule gcp_noncompliance_dns_logging_disabled
+
+{
+  meta:
+    author = "Gowthaman"
+    description = "Detects disabled DNS logging in VPC networks with HIPAA/SOC2 compliance context"
+    data_source = "GCP Security Command Center"
+    severity = "Medium"
+    compliance_standards = "HIPAA 164.308(a)(1)(ii) & 164.312(b); SOC2 2017 CC4.1 & CC7.3"
+
+  events:
+    $e.metadata.vendor_name = "Google"
+    $e.metadata.product_name = "Security Command Center"
+    $e.metadata.log_type = "GCP_SECURITYCENTER_MISCONFIGURATION"
+    $e.metadata.product_event_type = "DNS_LOGGING_DISABLED"
+    $e.target.resource_ancestors.resource_type = "CLOUD_PROJECT"
+    $e.target.application = "compute.googleapis.com"
+    $e.target.resource.name = $resource_name
+
+
+  match:
+    $resource_name over 24h
+
+   outcome :
+    $risk_score = 50
+    $description = "This medium-severity alert identifies that DNS logging is disabled within a Google Cloud Platform (GCP) project. Reported by Security Command Center, this misconfiguration impacts crucial auditing and monitoring capabilities, leading to non-compliance with HIPAA and SOC2 standards."
+    $event_name = array_distinct($e.metadata.product_event_type)
+    $principal_resource_name = array_distinct($e.principal.resource.name)
+    $target_resource_name = array_distinct($e.target.resource.name)    
+    $resource_display_name = array_distinct($e.target.resource.attribute.labels["resource_displayName"])
+    $resource_type = array_distinct($e.target.resource.attribute.labels["resource_type"])
+    $resource_path = array_distinct($e.target.resource.attribute.labels["resource_path_string"])
+    $gcp_org_id = array_distinct($e.principal.resource_ancestors.name)
+    $target_resource_product_object_id = array_distinct($e.target.resource.product_object_id)
+    $resource_location = array_distinct($e.target.location.name)
+    $recommendation = array_distinct($e.security_result.detection_fields["sourceProperties_Recommendation"])
+    $action_required_on_project = array_distinct($e.target.resource.attribute.labels["ActionRequiredOnProject"]) 
+
+  condition:
+    $e
+}
