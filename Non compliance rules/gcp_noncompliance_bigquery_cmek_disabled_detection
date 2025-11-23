@@ -1,0 +1,43 @@
+rule gcp_noncompliance_bigquery_cmek_disabled_detection {
+  meta:
+    author = "Gowthaman"
+    description = "Detects BigQuery tables lacking Customer-Managed Encryption Keys (CMEK). This is a Google Security Command Center finding relevant to HIPAA Control 164.312(a)(2)(iv) for encryption of electronic Protected Health Information (ePHI) at rest."
+    data_source = "Google Security Command Center"
+    severity = "Medium"
+    compliance_standard = "HIPAA 164.312(a)(2)(iv),164.312(e)(2)(ii) SOC2 2017 CC6.1.3,CC6.1.10"
+    
+
+  events:
+    $event.metadata.vendor_name = "Google"
+    $event.metadata.product_name = "Security Command Center"
+    $event.metadata.log_type = "GCP_SECURITYCENTER_MISCONFIGURATION"
+    $event.metadata.product_event_type = "BIGQUERY_TABLE_CMEK_DISABLED"
+    $event.security_result.alert_state = "ALERTING" // Only alert on active findings
+    $event.target.application = "bigquery.googleapis.com"
+    $event.target.resource.attribute.labels["resource_type"] = "google.cloud.bigquery.Table"
+    $event.principal.resource_ancestors[0].name = /organizations\/\d+/ 
+    $event.target.resource.name = $resource_name
+    $event.target.resource.attribute.labels["resource_projectDisplayName"] = $project
+  
+  match:
+    $resource_name, $project over 24h
+
+  outcome :
+    $risk_score = 50
+    $description = "Google Cloud BigQuery table detected with Customer-Managed Encryption Keys (CMEK) disabled, violating HIPAA 164.312(a)(2)(iv) for ePHI encryption at rest."
+    $event_name = array_distinct($event.metadata.product_event_type)
+    $principal_resource_name = array_distinct($event.principal.resource.name)
+    $target_resource_name = array_distinct($event.target.resource.name)    
+    $resource_display_name = array_distinct($event.target.resource.attribute.labels["resource_displayName"])
+    $resource_type = array_distinct($event.target.resource.attribute.labels["resource_type"])
+    $resource_path = array_distinct($event.target.resource.attribute.labels["resource_path_string"])
+    $gcp_org_id = array_distinct($event.principal.resource_ancestors.name)
+    $target_resource_product_object_id = array_distinct($event.target.resource.product_object_id)
+    $resource_location = array_distinct($event.target.location.name)
+    $recommendation = array_distinct($event.security_result.detection_fields["sourceProperties_Recommendation"])
+    $action_required_on_project = array_distinct($event.target.resource.attribute.labels["ActionRequiredOnProject"]) 
+
+  
+  condition:
+    $event
+}
