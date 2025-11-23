@@ -1,6 +1,6 @@
 rule aws_s3_public_access_block_removed {
   meta:
-    author = "Persistent"
+    author = "Gowthaman"
     description = "Detect when the S3 Public Access Block configuration has been removed from a bucket or an account."
     data_source = "AWS CloudTrail"
     platform = "AWS"
