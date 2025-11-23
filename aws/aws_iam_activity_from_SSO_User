@@ -1,0 +1,100 @@
+rule aws_iam_activity_from_SSO_User {
+
+  meta:
+    author = "Gowthaman"
+    description = "Detects critical IAM configuration changes (create, delete, update, policy attach/detach, MFA, permissions boundaries) performed by any principal type (AssumedRole, IAMUser, Root) originating from a specific suspicious IP address."
+    data_source = "AWS CloudTrail"
+    severity = "High"
+
+  events:
+    $cloudtrail.metadata.vendor_name = "AMAZON" and
+    $cloudtrail.metadata.product_name = "AWS CloudTrail" and
+    $cloudtrail.target.application = "iam.amazonaws.com" and
+
+    // Comprehensive list of critical IAM events
+    (
+        // User/Credential Management
+        $cloudtrail.metadata.product_event_type = "CreateUser" or
+        $cloudtrail.metadata.product_event_type = "DeleteUser" or
+        $cloudtrail.metadata.product_event_type = "UpdateUser" or
+        $cloudtrail.metadata.product_event_type = "CreateLoginProfile" or
+        $cloudtrail.metadata.product_event_type = "UpdateLoginProfile" or
+        $cloudtrail.metadata.product_event_type = "DeleteLoginProfile" or
+        $cloudtrail.metadata.product_event_type = "CreateAccessKey" or
+        $cloudtrail.metadata.product_event_type = "DeleteAccessKey" or
+
+        // User-to-Group Membership
+        $cloudtrail.metadata.product_event_type = "AddUserToGroup" or
+        $cloudtrail.metadata.product_event_type = "RemoveUserFromGroup" or
+
+        // Group Management
+        $cloudtrail.metadata.product_event_type = "CreateGroup" or
+        $cloudtrail.metadata.product_event_type = "DeleteGroup" or
+        $cloudtrail.metadata.product_event_type = "AttachGroupPolicy" or
+        $cloudtrail.metadata.product_event_type = "DetachGroupPolicy" or
+        $cloudtrail.metadata.product_event_type = "UpdateGroup" or
+
+        // Role Management
+        $cloudtrail.metadata.product_event_type = "CreateRole" or
+        $cloudtrail.metadata.product_event_type = "DeleteRole" or
+        $cloudtrail.metadata.product_event_type = "UpdateRole" or
+        $cloudtrail.metadata.product_event_type = "AttachRolePolicy" or
+        $cloudtrail.metadata.product_event_type = "DetachRolePolicy" or
+        $cloudtrail.metadata.product_event_type = "UpdateAssumeRolePolicy" or
+
+        // Policy Management (Direct Actions on Managed Policies)
+        $cloudtrail.metadata.product_event_type = "CreatePolicy" or
+        $cloudtrail.metadata.product_event_type = "DeletePolicy" or
+        $cloudtrail.metadata.product_event_type = "CreatePolicyVersion" or
+        $cloudtrail.metadata.product_event_type = "SetDefaultPolicyVersion" or
+
+        // MFA Management
+        $cloudtrail.metadata.product_event_type = "CreateVirtualMFADevice" or
+        $cloudtrail.metadata.product_event_type = "EnableMFADevice" or
+        $cloudtrail.metadata.product_event_type = "DeactivateMFADevice" or
+
+        // Permissions Boundaries
+        $cloudtrail.metadata.product_event_type = "PutUserPermissionsBoundary" or
+        $cloudtrail.metadata.product_event_type = "DeleteUserPermissionsBoundary" or
+        $cloudtrail.metadata.product_event_type = "PutRolePermissionsBoundary" or
+        $cloudtrail.metadata.product_event_type = "DeleteRolePermissionsBoundary" or
+
+        // Account-level Security (e.g., Password Policy)
+        $cloudtrail.metadata.product_event_type = "UpdateAccountPasswordPolicy"
+    ) and
+
+    $cloudtrail.security_result.action = "ALLOW" and // Only successful actions
+    $cloudtrail.principal.ip = $ip and                 // Originating from a specific (suspicious) IP
+
+    // New: Match action by any of these principal types
+    (
+        $cloudtrail.principal.resource.type = "AssumedRole" or
+        $cloudtrail.principal.resource.type = "IAMUser" or
+        $cloudtrail.principal.resource.type = "Root"
+    )
+   // $cloudtrail.principal.user.userid = /i-[0-9a-fA-F]{8}([0-9a-fA-F]{9})?/
+   // re.capture($cloudtrail.principal.user.userid, "(i-[0-9a-fA-F]{8}([0-9a-fA-F]{9})?)") = $instanceId
+
+  match:
+    $ip over 1h
+
+  outcome:
+    $risk_score = max(35)
+    $mitre_attack_tactic = "Persistence"
+    $mitre_attack_technique = "Account Manipulation"
+    $mitre_attack_technique_id = "T1098"
+    $event_count = count_distinct($cloudtrail.metadata.id)
+    $network_http_user_agent = array_distinct($cloudtrail.network.http.user_agent)
+    $principal_ip = array_distinct($cloudtrail.principal.ip)
+    $principal_ip_country = array_distinct($cloudtrail.principal.ip_geo_artifact.location.country_or_region)
+    $principal_ip_state = array_distinct($cloudtrail.principal.ip_geo_artifact.location.state)
+    $principal_user_display_name = array_distinct($cloudtrail.principal.user.user_display_name)
+    $recipient_aws_account_id = array_distinct($cloudtrail.additional.fields["recipientAccountId"])
+    $aws_region = array_distinct($cloudtrail.principal.location.name)
+    $target_resource_name = array_distinct($cloudtrail.target.resource.name)
+    $target_resource_product_object_id = array_distinct($cloudtrail.target.resource.product_object_id)
+   // $ec2_instance_id = array_distinct($instanceId)
+
+  condition:
+    $cloudtrail
+}
