@@ -1,0 +1,98 @@
+rule gcp_permissions_granted_over_sa_correlation {
+  meta:
+    author = "Gowthaman"
+    description = "Detects role grants to service accounts followed by VPC/compute/storage resource modifications - correlating SA privilege escalation with resource usage"
+    severity = "High"
+    priority = "High"
+
+  events:
+    // Phase 1: Service Account Privilege Escalation (SetIamPolicy)
+    $privilege_event.metadata.event_type = "USER_RESOURCE_UPDATE_PERMISSIONS"
+    $privilege_event.metadata.product_name = "Google Cloud Platform"
+    $privilege_event.target.resource.resource_type = "CLOUD_PROJECT"
+
+    // Check for SetIamPolicy event variations
+    (
+        $privilege_event.metadata.product_event_type = "SetIamPolicy" or
+        re.regex($privilege_event.metadata.product_event_type, "google\\.iam\\.admin\\..*\\.SetIAMPolicy$")
+    )
+
+    // Extract Grantor
+    $privilege_event.principal.user.userid = $grantor_user
+    
+    // Extract Role and ensure it is a privileged role
+    $privilege_event.target.resource.attribute.labels.key = "ser_binding_deltas_role"
+    $privilege_event.target.resource.attribute.labels.value = $granted_role
+    re.regex($granted_role, "roles/(owner|editor|.*admin.*|iam\\.serviceAccountUser)")
+
+    // Extract Action (Must be adding a permission)
+    $privilege_event.target.resource.attribute.labels.key = "ser_binding_deltas_action"
+    $privilege_event.target.resource.attribute.labels.value = "ADD"
+
+    // Extract Service Account Member
+    $privilege_event.target.resource.attribute.labels.key = "ser_binding_deltas_member"
+    $privilege_event.target.resource.attribute.labels.value = $member_string
+    
+    // Extract email from "serviceAccount:email@..." string
+    $service_account = re.capture($member_string, "serviceAccount:(.*)")
+    
+    // Ensure it is a Service Account (and filter out common managed/automation accounts)
+    re.regex($service_account, ".*@.*\\.iam\\.gserviceaccount\\.com")
+    not re.regex($service_account, ".*-(pipeline|deploy|ci|cd|automation|robot).*")
+    not re.regex($service_account, ".*@(gcp-sa-|cloudbuild|compute-system|containerregistry).*")
+
+    // Extract Project ID (Handle 'projects/' prefix if present)
+    $privilege_event.target.resource.name = $priv_resource_name
+    $project_id = re.capture($priv_resource_name, "(?:projects/)?(.*)")
+
+
+    // Phase 2: Service Account Resource Modification
+    $usage_event.metadata.log_type = "GCP_CLOUDAUDIT"
+    
+    // Correlate with the extracted Service Account email
+    $usage_event.principal.user.userid = $service_account
+    
+    // Correlate with the specific Project ID (Using standard UDM project field)
+    $usage_event.target.cloud.project.name = $project_id
+    
+    // Capture full resource name for reporting
+    $usage_event.target.resource.name = $full_resource_path
+    $usage_event.metadata.product_event_type = $usage_action
+
+    // High-risk Operations List (Using regex for flexibility across v1/beta API versions)
+    (
+        // VPC/Network
+        re.regex($usage_action, ".*compute\\.networks\\.(insert|patch|delete|removePeering|addPeering).*") or
+        // Firewall
+        re.regex($usage_action, ".*compute\\.firewalls\\.(insert|patch|delete).*") or
+        // Compute Instances
+        re.regex($usage_action, ".*compute\\.instances\\.(insert|patch|delete|setMetadata|setServiceAccount|setIamPolicy).*") or
+        // Storage
+        re.regex($usage_action, ".*storage\\.buckets\\.(create|update|delete).*") or
+        // BigQuery
+        $usage_action = "google.cloud.bigquery.v2.JobService.InsertJob" or
+        $usage_action = "tableservice.insert" or
+        // SA Keys
+        $usage_action = "v1.projects.serviceAccounts.keys.create"
+    )
+
+    // Time Window Correlation (Usage must happen AFTER Grant, within 2 hours)
+    $privilege_event.metadata.event_timestamp.seconds <= $usage_event.metadata.event_timestamp.seconds
+    $usage_event.metadata.event_timestamp.seconds - $privilege_event.metadata.event_timestamp.seconds <= 7200 
+
+  match:
+    $service_account, $grantor_user, $granted_role, $project_id over 4h
+
+  outcome:
+    $risk_score = max(70)    
+    $compromised_sa = array_distinct($service_account)
+    $privilege_grantor = array_distinct($grantor_user)
+    $elevated_role = array_distinct($granted_role)
+    $actions_performed = array_distinct($usage_action)
+    $target_resources = array_distinct($full_resource_path)
+    $project_context = array_distinct($project_id)
+    $source_ips = array_distinct($usage_event.principal.ip)
+
+  condition:
+    $privilege_event and $usage_event 
+}
