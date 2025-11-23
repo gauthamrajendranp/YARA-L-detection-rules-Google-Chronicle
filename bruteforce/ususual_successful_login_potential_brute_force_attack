@@ -1,0 +1,55 @@
+rule ususual_successful_login_potential_brute_force_attack {
+
+  meta:
+    Author = "Gowthaman"
+    description = "Detects a successful login after multiple failed attempts by an user within a timeframe of 5 minutes"
+    data_source = "Azure AD, Office 365"
+    severity = "Medium"
+
+  events:
+    $fail.metadata.vendor_name = "Microsoft"
+    $fail.metadata.product_name = "Azure AD" or $fail.metadata.product_name = "Office 365"
+    $fail.metadata.log_type = "AZURE_AD" or $fail.metadata.log_type = "OFFICE_365"
+    $fail.metadata.event_type = "USER_LOGIN"
+    $fail.security_result.action = "BLOCK"
+    $fail.metadata.product_event_type = "UserLoginFailed"
+    $fail.target.user.userid = $user_id
+
+    $login.metadata.vendor_name = "Microsoft"
+    $login.metadata.event_type = "USER_LOGIN"
+    $login.metadata.product_name = "Azure AD" or $login.metadata.product_name = "Office 365"
+    $login.security_result.action = "ALLOW"
+    $login.metadata.product_event_type = "UserLoggedIn" or $login.metadata.product_event_type = "login_success" or $login.metadata.product_event_type = "login_verification"
+    $login.target.user.userid = $user_id
+
+    $fail.metadata.event_timestamp.seconds <= $login.metadata.event_timestamp.seconds
+
+  match:
+    $user_id over 5m 
+
+  outcome:
+    $risk_score = max(35)
+    $mitre_attack_tactic = "Credential Access"
+    $mitre_attack_technique = "Brute Force"
+    $fail_target_user_agent = array_distinct($fail.network.http.user_agent)
+    $fail_principal_ip = array_distinct($fail.principal.ip)
+    $fail_principal_ip_country = array_distinct($fail.principal.ip_geo_artifact.location.country_or_region)
+    $fail_principal_ip_state = array_distinct($fail.principal.ip_geo_artifact.location.state)
+    $fail_principal_user_email_addresses = array_distinct ($fail.principal.user.email_addresses)
+    $fail_security_result_summary = array_distinct($fail.security_result.summary)
+    $fail_target_user_email_addresses = array_distinct($fail.target.user.email_addresses)
+    $fail_target_user_userid = array_distinct($fail.target.user.userid)
+    $fail_target_user_display_name = array_distinct($fail.target.user.user_display_name)
+    $login_target_user_agent = array_distinct($login.network.http.user_agent)
+    $login_principal_ip = array_distinct($login.principal.ip)
+    $login_principal_ip_country = array_distinct($login.principal.ip_geo_artifact.location.country_or_region)
+    $login_principal_user_email_addresses = array_distinct ($login.principal.user.email_addresses)
+    $login_security_result_summary = array_distinct($login.security_result.summary)
+    $login_target_user_email_addresses = array_distinct($login.target.user.email_addresses)
+    $login_target_user_userid = array_distinct($login.target.user.userid)
+    $login_target_user_display_name = array_distinct($login.target.user.user_display_name)
+
+
+  condition:
+    #fail > 5 and $login
+}
