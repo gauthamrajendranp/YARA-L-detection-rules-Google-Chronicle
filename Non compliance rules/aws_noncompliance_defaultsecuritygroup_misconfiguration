@@ -1,0 +1,40 @@
+rule aws_noncompliance_defaultsecuritygroup_misconfiguration {
+  meta:
+    author = "Gowthaman"
+    description = "Detects when a default security group in VPCs is not configured to restrict all traffic, violating HIPAA, NIST, and SOC2 compliance. Ensure the default security group of every VPC restricts all traffic"
+    data_source = "GCP Security Command Center"
+    severity = "High"
+    compliance_standard = "HIPAA 164.308(a)(3)(i), 164.308(a)(3)(ii), 164.312(a)(1); NIST AC-3, AC-5, AC-6, MP-2; SOC2 CC5.2.3, CC6.1.3, CC6.1.7"
+
+  events:
+    $e.metadata.vendor_name = "Google"
+    $e.metadata.product_name = "Security Command Center"
+    $e.metadata.log_type = "GCP_SECURITYCENTER_MISCONFIGURATION"
+    $e.metadata.event_type = "GENERIC_EVENT"
+    $e.metadata.product_event_type = "DEFAULT_SECURITY_GROUP_VPC_RESTRICTS_ALL_TRAFFIC"
+    $e.security_result.severity = "HIGH"
+    $e.security_result.category_details = "MISCONFIGURATION"
+    $e.target.resource.attribute.labels["resource_type"] = "AWS::EC2::SecurityGroup"
+    $e.security_result.alert_state = "ALERTING"
+    $e.security_result.detection_fields["state"] = "ACTIVE"
+    $e.target.resource.name = $resource_name
+    
+
+  match:
+    $resource_name over 24h
+
+  outcome:
+    $risk_score = 70
+    $description = "Detection of a high-priority compliance violation: Detects when a default security group in VPCs is not configured to restrict all traffic, violating HIPAA, NIST, and SOC2 compliance. Ensure the default security group of every VPC restricts all traffic"
+    $event_name = array_distinct($e.metadata.product_event_type)
+    $principal_resource_name = array_distinct($e.principal.resource.name)
+    $target_resource_name = array_distinct($e.target.resource.name)    
+    $resource_display_name = array_distinct($e.target.resource.attribute.labels["resource_displayName"])
+    $recipient_aws_account_id = array_distinct($e.additional.fields["recipientAccountId"])
+    $aws_region = array_distinct($e.principal.location.name)
+    $target_resource_product_object_id = array_distinct($e.target.resource.product_object_id)
+    $recommendation = array_distinct($e.security_result.detection_fields["sourceProperties_Recommendation"])
+
+  condition:
+    $e
+}
