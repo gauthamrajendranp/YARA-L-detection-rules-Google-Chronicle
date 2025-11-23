@@ -1,0 +1,72 @@
+rule aws_sso_user_iam_privilege_escalation_correlation {
+  meta:
+    author = "Gowthaman"
+    description = "Correlates AWS SSO authentication events with subsequent critical IAM privilege modifications within 30 minutes. Monitors for policy attachments, policy creation, access key generation, and role trust modifications that could indicate credential abuse or privilege escalation by compromised SSO users."
+    severity = "High"
+    priority = "High"
+
+  events:
+    // Phase 1: SSO Authentication Event - USING ACTUAL UDM FIELDS
+    $sso_auth.metadata.log_type = "AWS_CLOUDTRAIL"
+    (
+        $sso_auth.metadata.product_event_type = "AssumeRole" or
+        $sso_auth.metadata.product_event_type = "AssumeRoleWithSAML" or 
+        $sso_auth.metadata.product_event_type = "AssumeRoleWithWebIdentity" or
+        $sso_auth.metadata.product_event_type = "ConsoleLogin" or
+        re.regex($sso_auth.principal.user.userid, "(?i)assumed-role.*sso") or
+        re.regex($sso_auth.principal.user.role_name, "(?i)sso")
+    )
+    // Map to actual UDM fields from your sample
+    $sso_auth.principal.user.userid = $sso_user
+    $sso_auth.principal.ip = $source_ip
+    $sso_auth.principal.user.role_name = $sso_role
+    $sso_auth.security_result.action = "ALLOW"  // Successful authentication
+
+    // Phase 2: IAM Privilege Modification Events - USING ACTUAL UDM FIELDS
+    $iam_event.metadata.log_type = "AWS_CLOUDTRAIL"
+    $iam_event.principal.user.userid = $sso_user  // Same user correlation
+    $iam_event.principal.ip = $source_ip          // Same IP correlation
+    
+    // CRITICAL IAM ACTIONS ONLY
+    (
+        // Policy attachment/modification
+        $iam_event.metadata.product_event_type = "AttachUserPolicy" or
+        $iam_event.metadata.product_event_type = "AttachRolePolicy" or
+        $iam_event.metadata.product_event_type = "CreatePolicy" or
+        $iam_event.metadata.product_event_type = "CreatePolicyVersion" or
+        $iam_event.metadata.product_event_type = "SetDefaultPolicyVersion" or
+        
+        // Direct policy updates
+        $iam_event.metadata.product_event_type = "PutUserPolicy" or
+        $iam_event.metadata.product_event_type = "PutRolePolicy" or
+        $iam_event.metadata.product_event_type = "UpdateAssumeRolePolicy" or
+        
+        // Access key creation (can be used for persistence)
+        $iam_event.metadata.product_event_type = "CreateAccessKey"
+    )
+    
+    // Correlation conditions
+    $sso_auth.metadata.event_timestamp.seconds <= $iam_event.metadata.event_timestamp.seconds
+    $iam_event.metadata.event_timestamp.seconds - $sso_auth.metadata.event_timestamp.seconds <= 1800  // 30 minutes
+
+  match:
+    $sso_user, $source_ip, $sso_role over 1h
+
+  outcome:
+    $risk_score = max(
+        if($iam_event.metadata.product_event_type = "AttachUserPolicy" or 
+           $iam_event.metadata.product_event_type = "CreatePolicy", 85, 70) +
+        if(re.regex($sso_role, ".*AdministratorAccess.*"), 15, 0) +
+        if($iam_event.metadata.event_timestamp.seconds - $sso_auth.metadata.event_timestamp.seconds <= 900, 10, 0)
+    )
+    $sso_login_time = array_distinct($sso_auth.metadata.event_timestamp.seconds)
+    $iam_action_time = array_distinct($iam_event.metadata.event_timestamp.seconds)
+    $sensitive_actions = array_distinct($iam_event.metadata.product_event_type)
+    $time_to_compromise = array_distinct($iam_event.metadata.event_timestamp.seconds - $sso_auth.metadata.event_timestamp.seconds)
+    $target_resources = array_distinct($iam_event.target.resource.name)
+    $user_agent = array_distinct($sso_auth.network.http.user_agent)
+    $aws_region = array_distinct($sso_auth.principal.location.name)
+
+  condition:
+    $sso_auth and $iam_event
+}
