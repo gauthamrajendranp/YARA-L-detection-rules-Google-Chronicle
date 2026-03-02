@@ -1,0 +1,24 @@
+rule taxii_master_ioc_match_IP {
+  meta:
+    author = "Gowthaman"
+    description = "Outbound network traffic to an IP address from a TAXII feed."
+    severity = "High"
+  events:
+    $e.metadata.product_event_type = "NETWORK_CONNECTION"
+    ($e.network.direction = "OUTBOUND" or  $e.network.direction = "INBOUND")
+
+    $hostname = $e.principal.hostname
+    $hostname != ""
+
+    $ti.graph.metadata.vendor_name = "TAXII_FEED"
+
+    // Join Condition: Matching destination IP with a threat IP here
+    $e.target.ip = $ti.graph.entity.ip
+
+  match:
+    $hostname over 10m
+  outcome:
+    $risk_score = 85
+  condition:
+    $e and $ti
+}
