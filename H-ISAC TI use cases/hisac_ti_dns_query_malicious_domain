@@ -1,0 +1,25 @@
+rule hisac_ti_dns_query_malicious_domain {
+
+  meta:
+    author = "Gowthaman"
+    description = "Detects DNS queries resolving domains listed in H-ISAC malicious domain feed."
+    severity = "High"
+    priority = "High"
+    data_source = "DNS Logs"
+
+  events:
+    $dns.metadata.event_type = "NETWORK_DNS"
+  //  $dns.metadata.product_event_type = "DNS Resolved"
+    $dns.principal.ip = $principalip
+
+    $ti.graph.metadata.vendor_name = "TAXII_FEED"
+    $dns.network.dns.questions.name = $ti.graph.entity.hostname
+    $malicious_domain = $ti.graph.entity.hostname
+
+
+  match:
+    $principalip, $malicious_domain over 10m
+
+  condition:
+    $dns and $ti
+}
